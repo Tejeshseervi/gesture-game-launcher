@@ -8,40 +8,42 @@ mp_hands = mp.solutions.hands
 hands = mp_hands.Hands(max_num_hands=1, min_detection_confidence=0.7)
 mp_drawing = mp.solutions.drawing_utils
 
-cap = cv2.VideoCapture(0)
+# Initialize webcam with low resolution
+cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
+# Flags
 right_pressed = False
 left_pressed = False
 last_hover_time = 0
+last_action_time = 0
+gesture_cooldown = 0.5  # seconds
 
+# Finger count helper (modified to exclude thumb)
 def count_extended_fingers(landmarks):
     count = 0
-    finger_tips = [8, 12, 16, 20]
-    finger_pips = [6, 10, 14, 18]
-
+    finger_tips = [8, 12, 16, 20]  # Tips of index, middle, ring, pinky
+    finger_pips = [6, 10, 14, 18]   # PIP joints of index, middle, ring, pinky
+    
     for tip, pip in zip(finger_tips, finger_pips):
         if landmarks[tip].y < landmarks[pip].y:
             count += 1
-
-    # Thumb
-    if landmarks[4].x < landmarks[3].x:
-        count += 1
-
     return count
 
+# Detect gesture
 def detect_gesture(frame):
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     results = hands.process(frame_rgb)
     gesture = None
     extended = 0
-
     if results.multi_hand_landmarks:
         hand_landmarks = results.multi_hand_landmarks[0]
         mp_drawing.draw_landmarks(frame, hand_landmarks, mp_hands.HAND_CONNECTIONS)
         extended = count_extended_fingers(hand_landmarks.landmark)
-
     return extended, frame
 
+# Hill Climb mode (unchanged)
 def hill_climb_mode():
     global right_pressed, left_pressed
     print("[INFO] Gesture Mode: Hill Climb Racing")
@@ -53,9 +55,14 @@ def hill_climb_mode():
             break
 
         frame = cv2.flip(frame, 1)
+        current_time = time.time()
         extended, annotated = detect_gesture(frame)
 
-        if extended >= 4:  # open
+        # FPS display
+        fps = int(1 / max((time.time() - current_time), 0.001))
+        cv2.putText(annotated, f"FPS: {fps}", (10, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+
+        if extended >= 4:  # open hand = accelerate
             if not right_pressed:
                 pyautogui.keyDown('right')
                 right_pressed = True
@@ -64,7 +71,8 @@ def hill_climb_mode():
                 pyautogui.keyUp('left')
                 left_pressed = False
             cv2.putText(annotated, "ACCELERATING", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-        elif extended == 0:  # fist
+
+        elif extended == 0:  # fist = brake
             if not left_pressed:
                 pyautogui.keyDown('left')
                 left_pressed = True
@@ -73,6 +81,7 @@ def hill_climb_mode():
                 pyautogui.keyUp('right')
                 right_pressed = False
             cv2.putText(annotated, "BRAKING", (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+
         else:
             if right_pressed:
                 pyautogui.keyUp('right')
@@ -86,13 +95,11 @@ def hill_climb_mode():
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
+# Subway Surfers mode (modified to exclude thumb)
 def subway_surfers_mode():
-    global last_hover_time
+    global last_hover_time, last_action_time
     print("[INFO] Gesture Mode: Subway Surfers")
-    print("[INFO] 1 finger=Left, 2=Right, 3=Up, 4+=Down, Hoverboard=Show 3 fingers twice quickly, Q = Quit")
-    
-    last_gesture_time = 0
-    last_extended = 0
+    print("[INFO] 1=Left, 2=Right, 3=Up, 4=Down, 3 fingers fast twice = Hoverboard, Q = Quit")
 
     while True:
         ret, frame = cap.read()
@@ -100,42 +107,48 @@ def subway_surfers_mode():
             break
 
         frame = cv2.flip(frame, 1)
-        extended, annotated = detect_gesture(frame)
         current_time = time.time()
+        extended, annotated = detect_gesture(frame)
 
-        if extended == 1:
-            pyautogui.press('left')
-            print("[ACTION] Move Left")
-            time.sleep(0.5)
+        # FPS display
+        fps = int(1 / max((time.time() - current_time), 0.001))
+        cv2.putText(annotated, f"FPS: {fps}", (10, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
 
-        elif extended == 2:
-            pyautogui.press('right')
-            print("[ACTION] Move Right")
-            time.sleep(0.5)
+        # Handle gestures with cooldown (using only finger count, thumb excluded)
+        if current_time - last_action_time > gesture_cooldown:
+            if extended == 1:
+                pyautogui.press('left')
+                print("[ACTION] Move Left")
+                last_action_time = current_time
 
-        elif extended == 3:
-            if current_time - last_hover_time < 1.2:
-                pyautogui.press('space')
-                pyautogui.press('space')
-                print("[ACTION] Hoverboard (Double Space)")
-                last_hover_time = 0
-            else:
-                pyautogui.press('up')
-                print("[ACTION] Jump")
-                last_hover_time = current_time
-            time.sleep(0.5)
+            elif extended == 2:
+                pyautogui.press('right')
+                print("[ACTION] Move Right")
+                last_action_time = current_time
 
-        elif extended >= 4:
-            pyautogui.press('down')
-            print("[ACTION] Roll Down")
-            time.sleep(0.5)
+            elif extended == 3:
+                if current_time - last_hover_time < 1.2:
+                    pyautogui.press('space')
+                    pyautogui.press('space')
+                    print("[ACTION] Hoverboard")
+                    last_hover_time = 0
+                else:
+                    pyautogui.press('up')
+                    print("[ACTION] Jump")
+                    last_hover_time = current_time
+                last_action_time = current_time
+
+            elif extended >= 4:
+                pyautogui.press('down')
+                print("[ACTION] Roll Down")
+                last_action_time = current_time
 
         cv2.imshow("Subway Surfers", annotated)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
-# MAIN MENU
-print("Choose your Game Mode:")
+# === Main Menu ===
+print("Choose Game Mode:")
 print("1. Hill Climb Racing")
 print("2. Subway Surfers")
 choice = input("Enter choice (1 or 2): ")
@@ -147,7 +160,7 @@ elif choice == '2':
 else:
     print("Invalid choice. Exiting...")
 
-# Cleanup
+# === Cleanup ===
 cap.release()
 cv2.destroyAllWindows()
 pyautogui.keyUp('right')
