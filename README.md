@@ -43,5 +43,5 @@ This project uses **MediaPipe** for real-time hand tracking and **PyAutoGUI** to
 ### 🔹 Step 1: Clone this repository
 
 ```bash
-git clone https://github.com/your-username/gesture-game-launcher.git
+git clone https://github.com/tejeshseervi/gesture-game-launcher.git
 cd gesture-game-launcher
